@@ -1,125 +1,191 @@
 ############################
 # Cows move in herds, get infected, recover, a GIF of it is produced 
+# Daily cycle of activities
 ############################
 
 library(lattice) # for plotting
 library(latticeExtra) # for plotting
-library(animation)
+library(animation) # for generating gif
 
-n <- 40 # total number of cows
-m <- 2 # number of herds
-a <- 500 # size of the feeding region in x-direction
-b <- 500 # size of the feeding region in y-direction
-t_max <- 100 # number of time steps
-speed <- 40 # speed of cow movement (from papers it is 5 km/h)
-prox <- 30 # max distance at which cow can be infected
-prob <- 0.8 # probability of infection when distance is <prox
-distance <- 120 # comfortable distance from your herd
-a_prob <- 0.8 # probability of following your herd
-infection_length <- 5 # for how long cow stays infected before it recovers
+#### Initial set up #####
+field_length <- 100 # size of the feeding region in x-direction
+field_width <- 100 # size of the feeding region in y-direction
+herd_spacing <- 10 # min space between two herds in x or y direction
+herd_num <- 5 # number of herds
+cow_num <- 20 # number of cows in each herd
+total_num <- herd_num*cow_num # total number of cows
+simulation_days <- 10 # number of days to be simulated
+mean_day_speed <- 10 # mean day speed of cows (from papers it is 5 km/h)
+sd_day_speed <- 3 # standard deviation of day speed of cows
+mean_night_speed <- 5 # mean night speed of cows
+sd_night_speed <- 1 # standard deviation of night speed of cows
+prox <- 10 # max distance at which cow can be infected
+inf_prob <- 0.8 # probability of infection when distance is <prox
+radius <- 10 # the radius of a herd (at night) and initial position 
+herd_prob <- 0.6 # probability of following your herd
+infection_length <- 50 # how many hours cow stays infected before it recovers
+day <- 16 # Number of daytime hours
+night <- 24-day # Number of nighttime hours
+angle_change <- (2*pi)/day
 
-x <- numeric(0) # vector of x-coordinates
-y <- numeric(0) # vector of y-coordinates
-SIR <- vector() # vector of infection status
-herd <- numeric(0) # identifies herd cow belongs to
-x_median <- rep(0,n) # median x-coordinates of your herd
-y_median <- rep(0,n) # median y-coordinates of your herd
-infection <- rep(0,n) # infected for how many time steps
+#### Randomly select the locations of herds ####
+x_sample <- seq(0, field_length, herd_spacing)
+y_sample <- seq(0, field_width, herd_spacing)
+x_coord <- sample(x_sample, size=herd_num, replace = TRUE) 
+y_coord <- sample(y_sample, size=herd_num, replace = TRUE)
+## NOTE that two or more herds could have the same location
 
-# Initial position of each cow is random, all susceptible
-# Herd 1 is in top-left corner, herd 2 is in bottom-right
-for(i in 1:n/2)
-{
- x[i] <- runif(1, min = a/4, max = a/2)
- y[i] <- runif(1, min = b/2, max = 3/4*b)
- SIR[i] <- "S" # S=0, I=1, R=2
- herd[i] <- 1 # Herd 1
-}
+#### Creat data frame with animal information ####
+x <- numeric(total_num) # vector of x-coordinates
+y <- numeric(total_num) # vector of y-coordinates
+SIR <- rep("S",total_num) # vector of infection status
+herd <- rep(1:herd_num, times=1, each=cow_num) # herds
+x_median <- numeric(total_num) # median x-coordinates of herds
+y_median <- numeric(total_num) # median y-coordinates of herds
+infection <- numeric(total_num) # cow infected for how many time steps
+clockwise <- numeric(total_num) # 1, or 0 if anticlockwise
+herd_angle <- numeric(total_num) # angle at which the herd is moving
 
-for(i in 21:n)
-{
-  x[i] <- runif(1, min = a/2, max = 3/4*a)
-  y[i] <- runif(1, min = b/4, max = b/2)
-  SIR[i] <- "S" # S=0, I=1, R=2
-  herd[i] <- 2 # Herd 2
-}
-
-H <- data.frame(x,y,SIR,herd,x_median,y_median,infection) # organise initial info in a data frame
+H <- data.frame(x,y,SIR,herd,x_median,y_median,
+                infection,clockwise,herd_angle) 
 H$SIR <- factor(SIR, levels=c("S","I","R")) #set SIR to be a factor
-H$herd <- factor(herd) #set SIR to be a factor
+H$herd <- factor(herd) #set herd to be a factor
 
-H[1:2,3] <- "I" # introducing 2 infected animals in herd 1
+# input herd locations
+for (i in 1:herd_num){
+    H$x_median[which(H$herd==i)] <- x_coord[i]
+    H$y_median[which(H$herd==i)] <- y_coord[i]
+}
 
-par(ask=FALSE)
-# par(ask=TRUE) # press Enter for every next plot,
-# this can be amended to produce GIF or other animation/video 
-
-png(file="infection%03d.png", width=300, height=300)
-
-for (i in 1: t_max) # main loop that updates H at each time step
+# Initial position of each cow is random around the herd center
+for(i in 1:total_num)
 {
-  for (j in 1:m) # for each herd find the median coordinates
-  {
-   H[which(H[,4]==j),5] <- median(H[which(H[,4]==j),1])
-   H[which(H[,4]==j),6] <- median(H[which(H[,4]==j),2])
+ distance <- runif(1, min = 0, max = radius)
+ angle <- runif(1, min = -pi, max = pi)
+ H$x[i] <- H$x_median[i] + (distance * cos(angle))
+ H$y[i] <- H$y_median[i] + (distance * sin(angle))
+}
+
+#### Introducing infected animals ####
+H$SIR[1:2] <- "I"
+
+#### THE MAIN LOOP ####
+
+# png(file="infection%03d.png", width=300, height=300)
+ par(ask=TRUE)
+
+for (i in 1:simulation_days){ # a loop for each day
+  for (j in 1:herd_num){ # select random direction for each herd
+    H$herd_angle[which(H$herd==j)] <- runif(1, min = -pi, max = pi)
+    H$clockwise[which(H$herd==j)] <- sample(c(0,1),1)
   }
-  for(k in 1:n) # update the location of each cow
-  {
-   q <- runif(1, min = 0, max = 1)
-   if (sqrt((H[k,1]-H[k,5])^2+(H[k,2]-H[k,6])^2)>distance & q<a_prob)
-   { # if a cow is too far, with prob. q it will come back
-     ax <- H[k,5] - H[k,1]
-     ay <- H[k,6] - H[k,2]
-     epsilon <- pi/12 * runif(1, min=-1, max=1)
-     angle <- atan2(ay,ax) + epsilon
-     H[k,1] <- H[k,1] + cos(angle)*speed
-     H[k,2] <- H[k,2] + sin(angle)*speed
-   } else
-   {
-     angle <- runif(1, min = -pi, max = pi) # choose random angle
-     x_new <- H[k,1] + cos(angle)*speed
-     y_new <- H[k,2] + sin(angle)*speed
-     while (x_new<0 | x_new>a | y_new<0 | y_new>b)
-     { # if travelling in this direction cow will collide with the 
-       # fence, cow will not choose this direction, choose another
-       # random angle and keep checking that cow stays in feeding region
-       angle <- runif(1, min = -pi, max = pi)
-       x_new <- H[k,1] + cos(angle)*speed
-       y_new <- H[k,2] + sin(angle)*speed
-     }
-     H[k,1] <- x_new # update x 
-     H[k,2] <- y_new # and y coordinates
-   }
+  for (j in 1:day){ # a subloop for each daytime hour
+    for(k in 1:herd_num){ # for each herd update median
+      if(H$clockwise[which(H$herd==k)[1]]==1){
+        angle <- H$herd_angle[which(H$herd==k)[1]] 
+        + angle_change + runif(1, min = -pi/30, max = pi/30)  
+      }else{
+        angle <- H$herd_angle[which(H$herd==k)[1]] 
+        - angle_change + runif(1, min = -pi/30, max = pi/30)  
+      }
+      speed <- rnorm(1, mean = mean_day_speed, sd = sd_day_speed)
+      H$x_median[which(H$herd==k)] <- H$x_median[which(H$herd==k)[1]]
+      + (speed * cos(angle))
+      H$y_median[which(H$herd==k)] <- H$y_median[which(H$herd==k)[1]]
+      + (speed * sin(angle))
+      H$herd_angle[which(H$herd==k)] <- angle    
+    }
+    for(k in 1:total_num){ # for each cow update location
+      if (runif(1, min = 0, max = 1) < herd_prob){
+        ax <- H$x_median[k] - H$x[k]
+        ay <- H$y_median[k] - H$y[k]
+        angle <- atan2(ay,ax) + (pi/30 * runif(1, min=-1, max=1))
+        speed <- rnorm(1, mean = mean_day_speed, sd = sd_day_speed)
+        H$x[k] <- H$x[k] + (speed * cos(angle))
+        H$y[k] <- H$y[k] + (speed * sin(angle))       
+      } else {
+        angle <- runif(1, min=-pi, max=pi)
+        speed <- rnorm(1, mean = mean_day_speed, sd = sd_day_speed)
+        H$x[k] <- H$x[k] + (speed * cos(angle))
+        H$y[k] <- H$y[k] + (speed * sin(angle)) 
+      }
+    }
+    for(k in 1:total_num){ # for each infected cow check if infection transmits
+      if(H$SIR[k]=="I"){
+        for(l in 1:total_num){
+          distance <- sqrt((H$x[l]-H$x[k])^2+(H$y[l]-H$y[k])^2)
+          if(H$SIR[l]=="S" & distance<prox & runif(1, min = 0, max = 1)<inf_prob){
+            H$SIR[l] <- "I"
+          }
+        } 
+      }
+    }
+    # update the infection time
+    H$infection[which(H$SIR=="I")] <- H$infection[which(H$SIR=="I")] + 1
+    # recover cows
+    H$SIR[which(H$infection==infection_length)] <- "R"
+    # produce a plot (S-empty circles, I-colored circles, R-empty triangles)
+    susceptible <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="S"),], 
+                          pch=1, xlim=c(0,field_length), ylim=c(0,field_width))
+    infected <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="I"),], 
+                       pch=2, xlim=c(0,field_length), ylim=c(0,field_width))
+    recovered <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="R"),], 
+                        pch=3, xlim=c(0,field_length), ylim=c(0,field_width))
+    # ani.record(reset = FALSE, replay.cur = FALSE)
+    print(susceptible+infected+recovered)
+    # print(summary(H$SIR))
   }
-  for(l in 1:n) {
-    if (H[l,3] == "I") # for each infected cow
-    {
-      for (m in 1:n) { # check each susceptible cow 
-        p <- runif(1, min = 0, max = 1)
-        if (H[m,3]=="S" & sqrt((H[m,1]-H[l,1])^2+(H[m,2]-H[l,2])^2)<prox & p<prob) {
-          H[m,3] <- "I" # and if distance between them is <prox
-        } # then cow gets infected with probability p
-      } 
-    } 
-  } 
-  H[which(H[,3]=="I"),7] <- H[which(H[,3]=="I"),7] + 1 # also update the infection time
-  H[which(H[,7]==infection_length),3] <- "R" # and recover cows
-  # plot location of the cows (susceptible - empty, infected - colored)
-  susceptible <- xyplot(y~x, groups=herd, data=H[(H$SIR=="S"),], pch=1, xlim=c(0,a), ylim=c(0,b))
-  infected <- xyplot(y~x, groups=herd, data=H[(H$SIR=="I"),], pch=15, xlim=c(0,a), ylim=c(0,b))
-  recovered <- xyplot(y~x, groups=herd, data=H[(H$SIR=="R"),], pch=2, xlim=c(0,a), ylim=c(0,b))
-  ani.record(reset = FALSE, replay.cur = FALSE)
+  for (j in 1:night){ # a subloop for each nighttime hour
+    for(k in 1:herd_num){ # for each herd update median
+      H$x_median[which(H$herd==k)] <- x_coord[k]
+      H$y_median[which(H$herd==k)] <- y_coord[k] 
+    }
+    for(k in 1:total_num){ # for each cow update location
+      if (runif(1, min = 0, max = 1) < herd_prob){
+        ax <- H$x_median[k] - H$x[k]
+        ay <- H$y_median[k] - H$y[k]
+        angle <- atan2(ay,ax) + (pi/30 * runif(1, min=-1, max=1))   
+      } else {
+        angle <- runif(1, min=-pi, max=pi)
+      }
+      speed <- rnorm(1, mean = mean_night_speed, sd = sd_night_speed)
+      H$x[k] <- H$x[k] + (speed * cos(angle))
+      H$y[k] <- H$y[k] + (speed * sin(angle))
+    }
+    for(k in 1:total_num){ # for each infected cow check if infection transmits
+      if(H$SIR[k]=="I"){
+        for(l in 1:total_num){
+          distance <- sqrt((H$x[l]-H$x[k])^2+(H$y[l]-H$y[k])^2)
+          if(H$SIR[l]=="S" & distance<prox & runif(1, min = 0, max = 1)<inf_prob){
+            H$SIR[l] <- "I"
+          }
+        } 
+      }
+    }
+    # update the infection time
+    H$infection[which(H$SIR=="I")] <- H$infection[which(H$SIR=="I")] + 1
+    # recover cows
+    H$SIR[which(H$infection==infection_length)] <- "R"
+    # produce a plot (S-empty circles, I-colored circles, R-empty triangles)
+    susceptible <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="S"),], 
+                          pch=1, xlim=c(0,field_length), ylim=c(0,field_width))
+    infected <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="I"),], 
+                       pch=1, xlim=c(0,field_length), ylim=c(0,field_width))
+    recovered <- xyplot(y~x, groups=herd, data=H[which(H$SIR=="R"),], 
+                        pch=1, xlim=c(0,field_length), ylim=c(0,field_width))
+    # ani.record(reset = FALSE, replay.cur = FALSE)
+    print(susceptible+infected+recovered)
+    # print(summary(H$SIR))
+  }
+}
 
-  print(susceptible+infected+recovered)
-  # print(summary(H[,3]))
-}    
 
-#dev.off()
-
-ani.options(convert = 'C:/Program Files/ImageMagick-6.8.9-Q16/convert.exe')
-# convert pngs to one gif using ImageMagick
-im.convert('*.png', output = 'infection.gif', convert = "convert",
-           cmd.fun = if (.Platform$OS.type == "windows") shell else system, clean = TRUE)
-
-# cleaning up
-file.remove(list.files(pattern=".png"))
+# #### Make a gif ####
+# #dev.off()
+# ani.options(convert = 'C:/Program Files/ImageMagick-6.8.9-Q16/convert.exe')
+# # convert pngs to one gif using ImageMagick
+# im.convert('*.png', output = 'infection.gif', convert = "convert",
+#            cmd.fun = if (.Platform$OS.type == "windows") 
+#              shell else system, clean = TRUE)
+# # cleaning up
+# file.remove(list.files(pattern=".png"))
