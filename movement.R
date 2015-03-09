@@ -1,11 +1,10 @@
 ############################
-# Cows move in herds, get infected, recover
+# Cows move in herds, get infected, recover, a GIF of it is produced 
 ############################
 
 library(lattice) # for plotting
 library(latticeExtra) # for plotting
-
-ani.record(reset = FALSE, replay.cur = FALSE)
+library(animation)
 
 n <- 40 # total number of cows
 m <- 2 # number of herds
@@ -51,9 +50,11 @@ H$herd <- factor(herd) #set SIR to be a factor
 
 H[1:2,3] <- "I" # introducing 2 infected animals in herd 1
 
-par(ask=TRUE) # press Enter for every next plot,
+par(ask=FALSE)
+# par(ask=TRUE) # press Enter for every next plot,
 # this can be amended to produce GIF or other animation/video 
 
+png(file="infection%03d.png", width=300, height=300)
 
 for (i in 1: t_max) # main loop that updates H at each time step
 {
@@ -108,6 +109,17 @@ for (i in 1: t_max) # main loop that updates H at each time step
   infected <- xyplot(y~x, groups=herd, data=H[(H$SIR=="I"),], pch=15, xlim=c(0,a), ylim=c(0,b))
   recovered <- xyplot(y~x, groups=herd, data=H[(H$SIR=="R"),], pch=2, xlim=c(0,a), ylim=c(0,b))
   ani.record(reset = FALSE, replay.cur = FALSE)
+
   print(susceptible+infected+recovered)
-  print(summary(H[,3]))
+  # print(summary(H[,3]))
 }    
+
+#dev.off()
+
+ani.options(convert = 'C:/Program Files/ImageMagick-6.8.9-Q16/convert.exe')
+# convert pngs to one gif using ImageMagick
+im.convert('*.png', output = 'infection.gif', convert = "convert",
+           cmd.fun = if (.Platform$OS.type == "windows") shell else system, clean = TRUE)
+
+# cleaning up
+file.remove(list.files(pattern=".png"))
