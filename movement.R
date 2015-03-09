@@ -1,20 +1,23 @@
 ############################
-# Cows move in herds, get infected
+# Cows move in herds, get infected, recover
 ############################
 
 library(lattice) # for plotting
 library(latticeExtra) # for plotting
+
+ani.record(reset = FALSE, replay.cur = FALSE)
 
 n <- 40 # total number of cows
 m <- 2 # number of herds
 a <- 500 # size of the feeding region in x-direction
 b <- 500 # size of the feeding region in y-direction
 t_max <- 100 # number of time steps
-speed <- 20 # speed of cow movement (from papers it is 5 km/h)
-prox <- 20 # max distance at which cow can be infected
-prob <- 0.9 # probability of infection when distance is <prox
-distance <- 10 # comfortable distance from your herd
+speed <- 40 # speed of cow movement (from papers it is 5 km/h)
+prox <- 30 # max distance at which cow can be infected
+prob <- 0.8 # probability of infection when distance is <prox
+distance <- 120 # comfortable distance from your herd
 a_prob <- 0.8 # probability of following your herd
+infection_length <- 5 # for how long cow stays infected before it recovers
 
 x <- numeric(0) # vector of x-coordinates
 y <- numeric(0) # vector of y-coordinates
@@ -22,6 +25,7 @@ SIR <- vector() # vector of infection status
 herd <- numeric(0) # identifies herd cow belongs to
 x_median <- rep(0,n) # median x-coordinates of your herd
 y_median <- rep(0,n) # median y-coordinates of your herd
+infection <- rep(0,n) # infected for how many time steps
 
 # Initial position of each cow is random, all susceptible
 # Herd 1 is in top-left corner, herd 2 is in bottom-right
@@ -41,8 +45,9 @@ for(i in 21:n)
   herd[i] <- 2 # Herd 2
 }
 
-H <- data.frame(x,y,SIR,herd,x_median,y_median) # organise initial info in a data frame
+H <- data.frame(x,y,SIR,herd,x_median,y_median,infection) # organise initial info in a data frame
 H$SIR <- factor(SIR, levels=c("S","I","R")) #set SIR to be a factor
+H$herd <- factor(herd) #set SIR to be a factor
 
 H[1:2,3] <- "I" # introducing 2 infected animals in herd 1
 
@@ -86,7 +91,7 @@ for (i in 1: t_max) # main loop that updates H at each time step
    }
   }
   for(l in 1:n) {
-    if (H[l,3] == "I") # for each infected cow !!!COUNT AND RECOVER
+    if (H[l,3] == "I") # for each infected cow
     {
       for (m in 1:n) { # check each susceptible cow 
         p <- runif(1, min = 0, max = 1)
@@ -95,11 +100,14 @@ for (i in 1: t_max) # main loop that updates H at each time step
         } # then cow gets infected with probability p
       } 
     } 
-  } # plot location of the cows (susceptible - empty, infected - colored)
+  } 
+  H[which(H[,3]=="I"),7] <- H[which(H[,3]=="I"),7] + 1 # also update the infection time
+  H[which(H[,7]==infection_length),3] <- "R" # and recover cows
+  # plot location of the cows (susceptible - empty, infected - colored)
   susceptible <- xyplot(y~x, groups=herd, data=H[(H$SIR=="S"),], pch=1, xlim=c(0,a), ylim=c(0,b))
   infected <- xyplot(y~x, groups=herd, data=H[(H$SIR=="I"),], pch=15, xlim=c(0,a), ylim=c(0,b))
-  print(susceptible+infected)
-}
-
-  
-    
+  recovered <- xyplot(y~x, groups=herd, data=H[(H$SIR=="R"),], pch=2, xlim=c(0,a), ylim=c(0,b))
+  ani.record(reset = FALSE, replay.cur = FALSE)
+  print(susceptible+infected+recovered)
+  print(summary(H[,3]))
+}    
